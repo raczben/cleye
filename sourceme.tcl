@@ -1,21 +1,32 @@
-# This TCL script helps to enhance a multi-gig serial link using Xilinx FPGAs.
-package require csv
-package require struct::matrix
+# This file is part of cleye.
+# 
+#     Cleye is free software: you can redistribute it and/or modify
+#     it under the terms of the GNU General Public License as published by
+#     the Free Software Foundation, either version 3 of the License, or
+#     (at your option) any later version.
+# 
+#     Foobar is distributed in the hope that it will be useful,
+#     but WITHOUT ANY WARRANTY; without even the implied warranty of
+#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#     GNU General Public License for more details.
+# 
+#     You should have received a copy of the GNU General Public License
+#     along with Foobar.  If not, see <https://www.gnu.org/licenses/>.
 
-# source sweepValues.tcl
+# This TCL script helps to enhance a multi-gig serial link using Xilinx FPGAs.
+
 
 if {![info exists __IBERT_UTIL_SOURCED__]} {
     set __IBERT_UTIL_SOURCED__ 1
+
+    puts "Opening hardware manager"
+    open_hw
+
+    puts "Connect to hardware server"
+    # Run quietly to prevent errors when it already connected.
+    connect_hw_server -quiet
 } 
 
-# set txDeviceForce {localhost:3121/xilinx_tcf/Digilent/210203A2513BA xc7vx485t_0}
-
-puts "Opening hardware manager"
-open_hw
-
-puts "Connect to hardware server"
-# Run quietly to prevent errors when it already connected.
-connect_hw_server -quiet
 
 proc fetch_devices { } {
 
@@ -48,6 +59,7 @@ proc fetch_devices { } {
     return $allDevices
 }
 
+
 proc set_device { target device } {
     close_hw_target -quiet
     puts "Opening target: $target   $device"
@@ -56,7 +68,6 @@ proc set_device { target device } {
     current_hw_device $device -quiet
     refresh_hw_device -update_hw_probes false [lindex $device 1]
 }
-
 
 
 proc choose_device { allDevices side } {
@@ -114,18 +125,6 @@ proc run_scan { linkName scanFile {hincr 16} {vincr 16} {returnParam "Open Area"
 
     write_hw_sio_scan $scanFile [get_hw_sio_scans $xil_newScan] -force
 
-    if { [info commands m]  ne ""} {
-        m destroy
-    }
-    struct::matrix m
-    m add columns 3
-    set f [open $scanFile]
-    csv::read2matrix $f m ,
-    close $f
-    set rowIdx [lindex [m search all $returnParam] 0 1]
-    set openArea [m get cell 1 $rowIdx]
-    puts "openArea:  $openArea"
-    return $openArea
 }
 
 
@@ -140,36 +139,6 @@ proc create_link { sio } {
     return $linkName
 }
 
-
-proc ibert_main {} {
-    set allDevices [fetch_devices]
-
-    set txDevice [choose_device $allDevices "TX"]
-    set_device $txDevice
-
-    set txSio [choose_sio "TX"]
-
-    set rxDevice [choose_device $allDevices "RX"]
-    puts "rxDevice txSio: $txSio"
-    close_hw_target -quiet
-    puts "close_hw_target txSio: $txSio"
-    set_device $rxDevice
-    puts "set_device txSio: $txSio"
-
-    set rxSio [choose_sio "RX"]
-    puts "rxSio txSio: $txSio"
-    puts $rxSio
-    puts $txSio
-
-    set links [create_link $txDevice $txSio $rxDevice $rxSio]
-    # set txLinkName $rxLinkName
-    independent_finder $txDevice [lindex $links 0] $rxDevice [lindex $links 1]
-# set xil_newLinks [list]
-# set xil_newLink [create_hw_sio_link -description {Link 4} [lindex [get_hw_sio_txs localhost:3121/xilinx_tcf/Digilent/210203A2513BA/0_1_0/IBERT/Quad_113/MGT_X1Y1/TX] 0] [lindex [get_hw_sio_rxs localhost:3121/xilinx_tcf/Digilent/210203A2513BA/0_1_0/IBERT/Quad_113/MGT_X1Y1/RX] 0] ]
-# lappend xil_newLinks $xil_newLink
-# set xil_newLinkGroup [create_hw_sio_linkgroup -description {Link Group 2} [get_hw_sio_links $xil_newLinks]]
-# unset xil_newLinks
-}
 
 proc independent_finder {txDevice txLinkName rxDevice rxLinkName} {
     puts "############### independent_finder ###############"
@@ -240,5 +209,4 @@ proc independent_finder {txDevice txLinkName rxDevice rxLinkName} {
         }
     }
 }
-
 
