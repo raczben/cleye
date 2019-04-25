@@ -80,7 +80,7 @@ def chooseDevice(proc, devices, side, vivadoPrompt=vivadoPrompt, puts=False):
     do(proc, 'set_device ' + device, vivadoPrompt, puts)
 
 
-def chooseSio(proc, side, vivadoPrompt=vivadoPrompt, puts=False):
+def chooseSio(proc, side, createLink=True, vivadoPrompt=vivadoPrompt, puts=False):
     ''' Set the transceiver channel for TX/RX side.
     '''
     do(proc, '', vivadoPrompt, puts)
@@ -93,7 +93,10 @@ def chooseSio(proc, side, vivadoPrompt=vivadoPrompt, puts=False):
     sioId = input()
     sio = sios[sioId]
 
-    do(proc, 'create_link ' + sio, vivadoPrompt, puts)
+    if createLink:
+        do(proc, 'create_link ' + sio, vivadoPrompt, puts)
+        
+    return sio
     
     
 def get_property(proc, propName, objectName, vivadoPrompt=vivadoPrompt, puts=True):
@@ -114,25 +117,25 @@ def set_property(proc, propName, value, objectName, vivadoPrompt=vivadoPrompt, p
     do(proc, cmd, vivadoPrompt, puts)
     
     
-def independent_finder(vivadoTX, vivadoRx):
+def independent_finder(vivadoTX, vivadoRx, txSio):
     ''' Runs the optimizer algorithm.
     '''
     TXDIFFSWING_values = [
         "{269 mV (0000)}" ,
-        "{336 mV (0001)}" ,
-        "{407 mV (0010)}" ,
-        "{474 mV (0011)}" ,
-        "{543 mV (0100)}" ,
-        "{609 mV (0101)}" ,
+        # "{336 mV (0001)}" ,
+        # "{407 mV (0010)}" ,
+        # "{474 mV (0011)}" ,
+        # "{543 mV (0100)}" ,
+        # "{609 mV (0101)}" ,
         "{677 mV (0110)}" ,
-        "{741 mV (0111)}" ,
-        "{807 mV (1000)}" ,
-        "{866 mV (1001)}" ,
+        # "{741 mV (0111)}" ,
+        # "{807 mV (1000)}" ,
+        # "{866 mV (1001)}" ,
         "{924 mV (1010)}" ,
-        "{973 mV (1011)}" ,
+        # "{973 mV (1011)}" ,
         "{1018 mV (1100)}",
-        "{1056 mV (1101)}",
-        "{1092 mV (1110)}",
+        # "{1056 mV (1101)}",
+        # "{1092 mV (1110)}",
         "{1119 mV (1111)}"
     ]
     
@@ -147,14 +150,15 @@ def independent_finder(vivadoTX, vivadoRx):
         for pName, pValues in globalParameterSpace.items():
             openAreas = []
             maxArea   = 0
-            bestValue = get_property(vivadoTX, pName, '[get_hw_sio_links]')
+            txSioGt = '[get_hw_sio_gts {}]'.format(txSio)
+            bestValue = get_property(vivadoTX, pName, txSioGt)
             
             for pValue in pValues:
                 print("Create scan ({} {})".format(pName, pValue))
-                set_property(vivadoTX, pName, pValue, '[get_hw_sio_links]')
-                do(vivadoTX, 'commit_hw_sio [get_hw_sio_links]')
+                set_property(vivadoTX, pName, pValue, txSioGt)
+                do(vivadoTX, 'commit_hw_sio ' + txSioGt)
                 
-                checkValue = get_property(vivadoTX, pName, '[get_hw_sio_links]')
+                checkValue = get_property(vivadoTX, pName, txSioGt)
                 if checkValue not in pValue: # Readback does not contains brackets {}
                     print("ERROR: Something went wrong. Cannot set value {}  {} ".format(checkValue, pValue))
 
@@ -223,50 +227,60 @@ def interactiveVivadoConsole(vivadoTX, vivadoRX):
     
 if __name__ == '__main__':
     print(cleyeLogo)
-           
-    logging.info('Spawning Vivado instances (TX/RX)')
-    vivadoTX = wexpect.spawn(vivadoPath, vivadoArgs)
-    vivadoRX = wexpect.spawn(vivadoPath, vivadoArgs)
-
-    logging.info('Warning for prompt of Vivado (waiting for Vivado startup)')
-    vivadoTX.expect(vivadoPrompt)
-    vivadoRX.expect(vivadoPrompt)
-
-    # print the texts
-    print(vivadoTX.before, end='')
-    print(vivadoTX.match.group(0), end='')
-
-
-    do(vivadoRX, 'source sourceme.tcl')
-    do(vivadoTX, 'source sourceme.tcl')
-    do(vivadoRX, 'set devices [fetch_devices]')
-    do(vivadoRX, 'puts $devices')
-    # devices = vivadoRX.before
-
-    # Get a list of all devices on all target.
-    # Remove empty lines (first line will be empty)
-    # And remove the brackets. fetch_devices returns lists.
-    devices = [x[1:-1] for x in vivadoRX.before.splitlines() if x ]
-
-    #
-    # Choose TX/RX device
-    # 
-    chooseDevice(vivadoTX, devices, 'TX')
-    chooseDevice(vivadoRX, devices, 'RX')
-
-    #
-    # Choose SIOs
-    # 
-    chooseSio(vivadoTX, 'TX')
-    chooseSio(vivadoRX, 'RX')
-
-    independent_finder(vivadoTX, vivadoRX)
-
-    print('')
-    print('All Script has been run.')
-    print('Switch to RX vivado console:')
-    print('')
     
-    interactiveVivadoConsole(vivadoTX, vivadoRX)
+    try:    
+        logging.info('Spawning Vivado instances (TX/RX)')
+        vivadoTX = wexpect.spawn(vivadoPath, vivadoArgs)
+        vivadoRX = wexpect.spawn(vivadoPath, vivadoArgs)
+
+        logging.info('Warning for prompt of Vivado (waiting for Vivado startup)')
+        vivadoTX.expect(vivadoPrompt)
+        vivadoRX.expect(vivadoPrompt)
+
+        # print the texts
+        print(vivadoTX.before, end='')
+        print(vivadoTX.match.group(0), end='')
+
+
+        do(vivadoRX, 'source sourceme.tcl')
+        do(vivadoTX, 'source sourceme.tcl')
+        do(vivadoRX, 'set devices [fetch_devices]')
+        do(vivadoRX, 'puts $devices')
+        # devices = vivadoRX.before
+
+        # Get a list of all devices on all target.
+        # Remove empty lines (first line will be empty)
+        # And remove the brackets. fetch_devices returns lists.
+        devices = [x[1:-1] for x in vivadoRX.before.splitlines() if x ]
+
+        #
+        # Choose TX/RX device
+        # 
+        chooseDevice(vivadoTX, devices, 'TX')
+        chooseDevice(vivadoRX, devices, 'RX')
+
+        #
+        # Choose SIOs
+        # 
+        txSio = chooseSio(vivadoTX, 'TX', createLink=False)
+        chooseSio(vivadoRX, 'RX')
+
+        independent_finder(vivadoTX, vivadoRX, txSio)
+
+        print('')
+        print('All Script has been run.')
+        print('Switch to RX vivado console:')
+        print('')
+        
+        interactiveVivadoConsole(vivadoTX, vivadoRX)
+    except KeyboardInterrupt:
+        print("KeyboardInterrupt catched")
+        print('Exiting to VivadoTX')
+        do(vivadoTX, 'exit', None)
+        vivadoTX.wait()
+        print('Exiting to VivadoRX')
+        do(vivadoRX, 'exit', None)
+        vivadoRX.wait()
+        sys.exit()
     
     
