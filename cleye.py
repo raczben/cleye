@@ -51,7 +51,7 @@ vivadoArgs = ['-mode', 'tcl']
 vivadoPrompt = 'Vivado% '
 
 # Setup logging 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logging.basicConfig(filename='cleye.log', filemode='w', format='%(asctime)s - %(name)s: [%(levelname)s] %(message)s')
 
 
@@ -64,7 +64,7 @@ class Vivado():
     def waitStartup(self):
         self.childProc.expect(vivadoPrompt)
         # print the texts
-        print(self.childProc.before + self.childProc.match.group(0), end='')
+        logging.debug(self.childProc.before + self.childProc.match.group(0))
         
         
     def do(self, cmd, prompt=vivadoPrompt, puts=False, errmsgs=[]):
@@ -94,7 +94,7 @@ class Vivado():
         for i, dev in enumerate(devices):
             print(str(i) + ' ' + dev)
 
-        print('Print choose an {} device: '.format(side), end='')
+        print('Choose device for {}: '.format(side), end='')
         deviceId = input()
         device = devices[deviceId]
 
@@ -106,7 +106,8 @@ class Vivado():
         ''' Set the transceiver channel for TX/RX side.
         '''
         self.do('', vivadoPrompt, puts)
-        self.do('get_hw_sio_gts', vivadoPrompt, puts)
+        errmsgs = ['No matching hw_sio_gts were found.']
+        self.do('get_hw_sio_gts', vivadoPrompt, puts, errmsgs=errmsgs)
         sios = [x for x in self.childProc.before.splitlines() if x ]
         sios = sios[0].split(' ')
         for i, sio in enumerate(sios):
@@ -401,11 +402,11 @@ def independent_finder(vivadoTX, vivadoRX, txSio):
         "{1100 mV}",
     ]
     
-    globalIteration = 2
+    globalIteration = 1
     globalParameterSpace = {}
     globalParameterSpace["TXDIFFSWING"] = TXDIFFSWING_values
-    globalParameterSpace["TXPRE"] = TXPRE_values
-    globalParameterSpace["TXPOST"] = TXPOST_values
+    # globalParameterSpace["TXPRE"] = TXPRE_values
+    # globalParameterSpace["TXPOST"] = TXPOST_values
     
     if not os.path.exists("runs"):
         os.makedirs("runs")
@@ -504,8 +505,10 @@ if __name__ == '__main__':
         vivadoTX.waitStartup()
         vivadoRX.waitStartup()
 
+        logging.info('Sourcing TCL procedures.')
         vivadoRX.do('source sourceme.tcl')
         vivadoTX.do('source sourceme.tcl')
+        logging.info('Exploring target devices (fetch_devices: this can take a while)')
         vivadoRX.do('set devices [fetch_devices]')
         try:
             devices = vivadoRX.get_var('devices')
