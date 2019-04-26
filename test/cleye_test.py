@@ -46,7 +46,7 @@ scanStructures = {}
 print('Start parsing csv files...', end='')
 for name in names:
     filename = os.path.join(test_path, 'resources', name + '.csv')
-    scanStructures[name] = cleye.readCsv(filename)
+    scanStructures[name] = cleye.ScanStructure(filename)
     
 print(' [  OK  ]')
 
@@ -54,7 +54,7 @@ print(' [  OK  ]')
 print('Testnig valid eye...', end='')
 ok = True
 for name, scanStruct in scanStructures.items():
-    validEye = cleye._testEye(scanStruct['scanData'])
+    validEye = scanStruct._testEye()
     if 'non_valid' in name:
         validEyeExpected = False
     else:
@@ -70,7 +70,7 @@ if ok:
 print('Testnig open areas...')
 ok = True
 for name, scanStruct in scanStructures.items():
-    openArea = cleye.getOpenArea(scanStruct)
+    openArea = scanStruct.getOpenArea()
     if 'non_valid' in name:
         assert(openArea==0.0)
     else:

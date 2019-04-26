@@ -56,8 +56,12 @@ logging.basicConfig(filename='cleye.log', filemode='w', format='%(asctime)s - %(
 
 
 class Vivado():
-    def __init__(self, executable, args):
+    def __init__(self, executable, args, sideName):
         self.childProc = None
+        self.sideName = sideName
+        self.sio = None
+        self.sioLink = None
+        
         self.childProc = wexpect.spawn(executable, args)
         
         
@@ -87,14 +91,14 @@ class Vivado():
                 print(self.childProc.match.group(0), end='')
         
         
-    def chooseDevice(self, devices, side, vivadoPrompt=vivadoPrompt, puts=False):
+    def chooseDevice(self, devices, vivadoPrompt=vivadoPrompt, puts=False):
         ''' set the hw target (blaster) and device (FPGA) for TX and RX side.
         '''
         # Print devices to user to choose from them.
         for i, dev in enumerate(devices):
             print(str(i) + ' ' + dev)
 
-        print('Choose device for {}: '.format(side), end='')
+        print('Choose device for {}: '.format(self.sideName), end='')
         deviceId = input()
         device = devices[deviceId]
 
@@ -102,7 +106,7 @@ class Vivado():
         self.do('set_device ' + device, vivadoPrompt, puts, errmsgs = errmsgs)
 
 
-    def chooseSio(self, side, createLink=True, vivadoPrompt=vivadoPrompt, puts=False):
+    def chooseSio(self, createLink=True, vivadoPrompt=vivadoPrompt, puts=False):
         ''' Set the transceiver channel for TX/RX side.
         '''
         self.do('', vivadoPrompt, puts)
@@ -112,14 +116,12 @@ class Vivado():
         sios = sios[0].split(' ')
         for i, sio in enumerate(sios):
             print(str(i) + ' ' + sio)
-        print('Print choose a SIO for {} side : '.format(side), end='')
+        print('Print choose a SIO for {} side : '.format(self.sideName), end='')
         sioId = input()
-        sio = sios[sioId]
+        self.sio = sios[sioId]
 
         if createLink:
-            self.do('create_link ' + sio, vivadoPrompt, puts)
-            
-        return sio
+            self.do('create_link ' + self.sio, vivadoPrompt, puts)
         
         
     def get_var(self, varname):
@@ -137,7 +139,7 @@ class Vivado():
         return ret
 
     
-    def get_property(self, propName, objectName, vivadoPrompt=vivadoPrompt, puts=True):
+    def get_property(self, propName, objectName, vivadoPrompt=vivadoPrompt, puts=False):
         ''' does a get_property command in vivado terminal. 
         
         It fetches the given property and returns it.
@@ -148,7 +150,7 @@ class Vivado():
         return val[0]
     
     
-    def set_property(self, propName, value, objectName, vivadoPrompt=vivadoPrompt, puts=True):
+    def set_property(self, propName, value, objectName, vivadoPrompt=vivadoPrompt, puts=False):
         ''' Sets a property.
         '''
         cmd = 'set_property {} {} {}'.format(propName, value, objectName)
@@ -163,134 +165,135 @@ class Vivado():
             self.do('exit', None)
             return self.childProc.wait()
         
-def _parsescanRows(scanRows):
-    scanData = {
-        'scanType': scanRows[0][0],
-        'x':[],
-        'y':[],
-        'values':[]
-        }
+
+class ScanStructure(dict):
+    def __init__(self, filename):
+        self.readCsv(filename)
         
-    if scanData['scanType'] not in ['1d bathtub', '2d statistical']:
-        logging.error('Uknnown scan type: ' + scanData['scanType'])
-        raise Exception('Uknnown scan type: ' + scanData['scanType'])
         
-    xdata = scanRows[0][1:]
-    # Need to normalize, dont know why...
-    divider = abs(float(xdata[0])*2)
-    
-    scanData['x'] = [float(x)/divider for x in scanRows[0][1:]]
-    
-    for r in scanRows[1:]:
-        intr = [float(x) for x in r]
-        scanData['y'].append(intr[0])
-        scanData['values'].append(intr[1:])
-       
-    return scanData
-
-    
-def readCsv(filename):
-    ret = {}
-    scanRows = []
-    storeScanRows = False
-    
-    with open(filename) as csv_file:
-        csv_reader = csv.reader(csv_file, delimiter=',')
-        for row in csv_reader:
-            if row[0] == 'Scan Start':
-                storeScanRows = True
-                continue
-            elif row[0] == 'Scan End':
-                storeScanRows = False
-                ret['scanData'] = _parsescanRows(scanRows)
-                continue
-            elif storeScanRows:
-                scanRows.append(row)
-                continue
-            else:
-                # Try to convert numbers if ots possible
-                try:
-                    val = float(row[1])
-                except ValueError:
-                    val = row[1]
-                ret[row[0]] = val
-    return ret
-    
-
-def _testEye(scanData, xLimit = 0.45, xValLimit = 0.005):
-    ''' Test that the read data is an eye or not.
-    A valid eye must contains 'bit errors' at the edges. If the eye is clean at +-0.500 UI, this
-    definetly not an eye.
-    '''
-    
-    # print('x: ' + str(scanData['x']))
-    # print('y: ' + str(scanData['y']))
-    # print('values: ' + str(scanData['values']))
-    
-    # Get the indexes of the 'edge'
-    # Edge means where abs(x) offset is big, bigger than 0.45.
-    edgeIndexes=[i for i,x in enumerate(scanData['x']) if abs(x) > xLimit]
-    if len(edgeIndexes) < 2:
-        logging.warning('Too few edge indexes')
-        return False
+    def readCsv(self, filename):
+        # ret = {}
+        scanRows = []
+        storeScanRows = False
         
-    # print('edgeIndexes: ' + str(edgeIndexes))
-    
-    # edgeValues contains BER values of the edge positions.
-    edgeValues = []
-    for v in scanData['values']:
-        edgeValues.append([v[i] for i in edgeIndexes])
-    
-    # print('edgeValues: ' + str(edgeValues))
-    # A valid eye must contains high BER values at the edges:
-    globalMinimum = min([min(ev) for ev in edgeValues])
-    
-    if globalMinimum < xValLimit:
-        logging.info('globalMinimum ({}) is less than xValLimit ({})  -> NOT a valid eye.'.format(globalMinimum, xValLimit))
-        return False
-    else:
-        logging.debug('globalMinimum ({}) is greater than xValLimit ({})  -> Valid eye.'.format(globalMinimum, xValLimit))
-        return True
+        with open(filename) as csv_file:
+            csv_reader = csv.reader(csv_file, delimiter=',')
+            for row in csv_reader:
+                if row[0] == 'Scan Start':
+                    storeScanRows = True
+                    continue
+                elif row[0] == 'Scan End':
+                    storeScanRows = False
+                    self['scanData'] = ScanStructure._parsescanRows(scanRows)
+                    continue
+                elif storeScanRows:
+                    scanRows.append(row)
+                    continue
+                else:
+                    # Try to convert numbers if ots possible
+                    try:
+                        val = float(row[1])
+                    except ValueError:
+                        val = row[1]
+                    self[row[0]] = val
+        
+        
+    @staticmethod
+    def _parsescanRows(scanRows):
+        scanData = {
+            'scanType': scanRows[0][0],
+            'x':[],
+            'y':[],
+            'values':[]
+            }
+            
+        if scanData['scanType'] not in ['1d bathtub', '2d statistical']:
+            logging.error('Uknnown scan type: ' + scanData['scanType'])
+            raise Exception('Uknnown scan type: ' + scanData['scanType'])
+            
+        xdata = scanRows[0][1:]
+        # Need to normalize, dont know why...
+        divider = abs(float(xdata[0])*2)
+        
+        scanData['x'] = [float(x)/divider for x in scanRows[0][1:]]
+        
+        for r in scanRows[1:]:
+            intr = [float(x) for x in r]
+            scanData['y'].append(intr[0])
+            scanData['values'].append(intr[1:])
+           
+        return scanData
+        
 
-
-def _getArea(scanStructure, xLimit = 0.2):
-    ''' This is an improoved area meter. 
-    Returns the open area of an eye even if there is no definite open eye.
-    Returns the center area multiplied by the BER values. (ie the average of the center area.)
-    '''
-    
-    scanData = scanStructure['scanData']
-    # Get the indexes of the 'center'
-    # Center means where abs(x) offset is small, less than 0.1.
-    centerIndexes=[i for i,x in enumerate(scanData['x']) if abs(x) < xLimit]
-    if len(centerIndexes) < 2:
-        logging.warning('Too few center indexes')
-        return False
-    
-    # centerValues contains BER values of the center positions.
-    centerValues = []
-    for v in scanData['values']:
-        centerValues.append([v[i] for i in centerIndexes])
-    
-    # Get the avg center value:
-    centerAvg = [float(sum(cv))/float(len(cv)) for cv in centerValues]
-    centerAvg = float(sum(centerAvg))/float(len(centerAvg))
-    
-    return centerAvg * scanStructure['Horizontal Increment']
-
-
-def getOpenArea(scanStructure):
-    if _testEye(scanStructure['scanData']):
-        if scanStructure['Open Area'] < 1.0:
-            # if the 'offitial open area' is 0 try to improove:
-            return _getArea(scanStructure)
+    def _testEye(self, xLimit = 0.45, xValLimit = 0.005):
+        ''' Test that the read data is an eye or not.
+        A valid eye must contains 'bit errors' at the edges. If the eye is clean at +-0.500 UI, this
+        definetly not an eye.
+        '''
+        scanData = self['scanData']
+        
+        # Get the indexes of the 'edge'
+        # Edge means where abs(x) offset is big, bigger than 0.45.
+        edgeIndexes=[i for i,x in enumerate(scanData['x']) if abs(x) > xLimit]
+        if len(edgeIndexes) < 2:
+            logging.warning('Too few edge indexes')
+            return False
+            
+        # edgeValues contains BER values of the edge positions.
+        edgeValues = []
+        for v in scanData['values']:
+            edgeValues.append([v[i] for i in edgeIndexes])
+        
+        # print('edgeValues: ' + str(edgeValues))
+        # A valid eye must contains high BER values at the edges:
+        globalMinimum = min([min(ev) for ev in edgeValues])
+        
+        if globalMinimum < xValLimit:
+            logging.info('globalMinimum ({}) is less than xValLimit ({})  -> NOT a valid eye.'.format(globalMinimum, xValLimit))
+            return False
         else:
-            return scanStructure['Open Area']
-    else:
-        return 0.0
+            logging.debug('globalMinimum ({}) is greater than xValLimit ({})  -> Valid eye.'.format(globalMinimum, xValLimit))
+            return True
+
+
+    def _getArea(self, xLimit = 0.2):
+        ''' This is an improoved area meter. 
+        Returns the open area of an eye even if there is no definite open eye.
+        Returns the center area multiplied by the BER values. (ie the average of the center area.)
+        '''
+        
+        scanData = self['scanData']
+        # Get the indexes of the 'center'
+        # Center means where abs(x) offset is small, less than 0.1.
+        centerIndexes=[i for i,x in enumerate(scanData['x']) if abs(x) < xLimit]
+        if len(centerIndexes) < 2:
+            logging.warning('Too few center indexes')
+            return False
+        
+        # centerValues contains BER values of the center positions.
+        centerValues = []
+        for v in scanData['values']:
+            centerValues.append([v[i] for i in centerIndexes])
+        
+        # Get the avg center value:
+        centerAvg = [float(sum(cv))/float(len(cv)) for cv in centerValues]
+        centerAvg = float(sum(centerAvg))/float(len(centerAvg))
+        
+        return centerAvg * self['Horizontal Increment']
+
+
+    def getOpenArea(self):
+        if self._testEye():
+            if self['Open Area'] < 1.0:
+                # if the 'offitial open area' is 0 try to improove:
+                return self._getArea()
+            else:
+                return self['Open Area']
+        else:
+            return 0.0
     
     
-def independent_finder(vivadoTX, vivadoRX, txSio):
+def independent_finder(vivadoTX, vivadoRX):
     ''' Runs the optimizer algorithm.
     '''
     TXDIFFSWING_values = [
@@ -415,17 +418,17 @@ def independent_finder(vivadoTX, vivadoRX, txSio):
         for pName, pValues in globalParameterSpace.items():
             openAreas = []
             maxArea   = 0
-            txSioGt = '[get_hw_sio_gts {}]'.format(txSio)
+            txSioGt = '[get_hw_sio_gts {}]'.format(vivadoTX.sio)
             bestValue = vivadoTX.get_property(pName, txSioGt)
             
             for pValue in pValues:
-                print("Create scan ({} {})".format(pName, pValue))
+                logging.info("Create scan ({} {})".format(pName, pValue))
                 vivadoTX.set_property(pName, pValue, txSioGt)
                 vivadoTX.do('commit_hw_sio ' + txSioGt)
                 
                 checkValue = vivadoTX.get_property(pName, txSioGt)
                 if checkValue not in pValue: # Readback does not contains brackets {}
-                    print("ERROR: Something went wrong. Cannot set value {}  {} ".format(checkValue, pValue))
+                    logging.error("Something went wrong. Cannot set value {}  {} ".format(checkValue, pValue))
                     
                 # set_property PORT.GTRXRESET 0 [get_hw_sio_gts  {localhost:3121/xilinx_tcf/Digilent/210203A2513BA/0_1_0/IBERT/Quad_113/MGT_X1Y0}]
                 # commit_hw_sio  [get_hw_sio_gts  {localhost:3121/xilinx_tcf/Digilent/210203A2513BA/0_1_0/IBERT/Quad_113/MGT_X1Y0}]
@@ -443,12 +446,12 @@ def independent_finder(vivadoTX, vivadoRX, txSio):
                 cmd = 'run_scan "{}" {} {} {} {}'.format(fname, hincr, vincr, scanType, linkName)
                 vivadoRX.do(cmd, errmsgs = ['ERROR: '])
                 
-                scanStructure = readCsv(fname)
-                openArea = getOpenArea(scanStructure)
+                scanStruc = ScanStructure(fname)
+                openArea = scanStruc.getOpenArea()
                 if openArea is None:
                     logging.error('openArea is None after reading file: ' + fname)
                             
-                print('OpenArea: {}'.format(openArea))
+                logging.info('OpenArea: {}  (parameters: {} = {})'.format(openArea, pName, pValue))
                 openAreas.append(openArea)
                 
                 if openArea > maxArea:
@@ -493,47 +496,55 @@ def interactiveVivadoConsole(vivadoTX, vivadoRX):
             vivado.do(cmd, vivadoPrompt, True)
     
     
+def init():
+    logging.info('Spawning Vivado instances (TX/RX)')
+    vivadoTX = Vivado(vivadoPath, vivadoArgs, 'TX')
+    vivadoRX = Vivado(vivadoPath, vivadoArgs, 'RX')
+
+    logging.info('Warning for prompt of Vivado (waiting for Vivado startup)')
+    vivadoTX.waitStartup()
+    vivadoRX.waitStartup()
+
+    logging.info('Sourcing TCL procedures.')
+    vivadoRX.do('source sourceme.tcl')
+    vivadoTX.do('source sourceme.tcl')
+    
+    return vivadoTX, vivadoRX
+    
+    
+def fetchDevices(vivado):
+    logging.info('Exploring target devices (fetch_devices: this can take a while)')
+    vivadoRX.do('set devices [fetch_devices]')
+    try:
+        devices = vivadoRX.get_var('devices')
+    except:
+        logging.error('No target device found. Please connect and power up your device(s)')
+        raise
+
+    # Get a list of all devices on all target.
+    # Remove the brackets. (fetch_devices returns lists.)
+    devices = re.findall(r'\{(.+?)\}', devices[0]) 
+    return devices
+
+    
+def chooseLink(vivadoTX, vivadoRX):
+    # Choose TX/RX device
+    vivadoTX.chooseDevice(devices)
+    vivadoRX.chooseDevice(devices)
+    
+    # Choose SIOs
+    vivadoTX.chooseSio(createLink=False)
+    vivadoRX.chooseSio()
+
+
 if __name__ == '__main__':
     print(cleyeLogo)
     
     try:
-        logging.info('Spawning Vivado instances (TX/RX)')
-        vivadoTX = Vivado(vivadoPath, vivadoArgs)
-        vivadoRX = Vivado(vivadoPath, vivadoArgs)
-
-        logging.info('Warning for prompt of Vivado (waiting for Vivado startup)')
-        vivadoTX.waitStartup()
-        vivadoRX.waitStartup()
-
-        logging.info('Sourcing TCL procedures.')
-        vivadoRX.do('source sourceme.tcl')
-        vivadoTX.do('source sourceme.tcl')
-        logging.info('Exploring target devices (fetch_devices: this can take a while)')
-        vivadoRX.do('set devices [fetch_devices]')
-        try:
-            devices = vivadoRX.get_var('devices')
-        except:
-            logging.error('No target device found. Please connect and power up your device(s)')
-            raise
-
-        # Get a list of all devices on all target.
-        # Remove the brackets. (fetch_devices returns lists.)
-        devices = re.findall(r'\{(.+?)\}', devices[0]) 
-        # devices = [x[1:-1] for x in devices[0].split(' ') ]
-
-        #
-        # Choose TX/RX device
-        # 
-        vivadoTX.chooseDevice(devices, 'TX')
-        vivadoRX.chooseDevice(devices, 'RX')
-
-        #
-        # Choose SIOs
-        # 
-        txSio = vivadoTX.chooseSio('TX', createLink=False)
-        vivadoRX.chooseSio('RX')
-
-        independent_finder(vivadoTX, vivadoRX, txSio)
+        vivadoTX, vivadoRX = init()
+        devices = fetchDevices(vivadoRX)
+        chooseLink(vivadoTX, vivadoRX)
+        independent_finder(vivadoTX, vivadoRX)
 
     except KeyboardInterrupt:
         print('Exiting to VivadoTX')
