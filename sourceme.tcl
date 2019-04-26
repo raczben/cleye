@@ -114,17 +114,18 @@ proc fetch_sio { side } {
 }
 
 
-proc run_scan { linkName scanFile {hincr 16} {vincr 16} {returnParam "Open Area"} } {
-    set xil_newScan [create_hw_sio_scan -description {Scan 4} 2d_full_eye  [lindex [get_hw_sio_links $linkName] 0 ]]
+proc run_scan { scanFile {hincr 16} {vincr 16} {scanType "2d_full_eye"} {linkName "*"} } {
+    set xil_newScan [create_hw_sio_scan -description {Scan 4} $scanType  [lindex [get_hw_sio_links $linkName] 0 ]]
     set_property HORIZONTAL_INCREMENT {$hincr} [get_hw_sio_scans $xil_newScan]
-    set_property VERTICAL_INCREMENT {$vincr} [get_hw_sio_scans $xil_newScan]
+    if { $scanType == "2d_full_eye" } {
+        set_property VERTICAL_INCREMENT   {$vincr} [get_hw_sio_scans $xil_newScan]
+    }
     run_hw_sio_scan [get_hw_sio_scans $xil_newScan]
 
     puts "Wait to finish..."
     wait_on_hw_sio_scan $xil_newScan
 
     write_hw_sio_scan $scanFile [get_hw_sio_scans $xil_newScan] -force
-
 }
 
 

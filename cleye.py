@@ -252,12 +252,13 @@ def _testEye(scanData, xLimit = 0.45, xValLimit = 0.005):
         return True
 
 
-def _getArea(scanData, xLimit = 0.2):
+def _getArea(scanStructure, xLimit = 0.2):
     ''' This is an improoved area meter. 
     Returns the open area of an eye even if there is no definite open eye.
     Returns the center area multiplied by the BER values. (ie the average of the center area.)
     '''
     
+    scanData = scanStructure['scanData']
     # Get the indexes of the 'center'
     # Center means where abs(x) offset is small, less than 0.1.
     centerIndexes=[i for i,x in enumerate(scanData['x']) if abs(x) < xLimit]
@@ -274,13 +275,14 @@ def _getArea(scanData, xLimit = 0.2):
     centerAvg = [float(sum(cv))/float(len(cv)) for cv in centerValues]
     centerAvg = float(sum(centerAvg))/float(len(centerAvg))
     
-    return centerAvg
-        
+    return centerAvg * scanStructure['Horizontal Increment']
+
+
 def getOpenArea(scanStructure):
     if _testEye(scanStructure['scanData']):
         if scanStructure['Open Area'] < 1.0:
             # if the 'offitial open area' is 0 try to improove:
-            return _getArea(scanStructure['scanData'])
+            return _getArea(scanStructure)
         else:
             return scanStructure['Open Area']
     else:
@@ -292,27 +294,119 @@ def independent_finder(vivadoTX, vivadoRX, txSio):
     '''
     TXDIFFSWING_values = [
         "{269 mV (0000)}" ,
-        # "{336 mV (0001)}" ,
-        # "{407 mV (0010)}" ,
-        # "{474 mV (0011)}" ,
-        # "{543 mV (0100)}" ,
-        # "{609 mV (0101)}" ,
+        "{336 mV (0001)}" ,
+        "{407 mV (0010)}" ,
+        "{474 mV (0011)}" ,
+        "{543 mV (0100)}" ,
+        "{609 mV (0101)}" ,
         "{677 mV (0110)}" ,
-        # "{741 mV (0111)}" ,
-        # "{807 mV (1000)}" ,
-        # "{866 mV (1001)}" ,
+        "{741 mV (0111)}" ,
+        "{807 mV (1000)}" ,
+        "{866 mV (1001)}" ,
         "{924 mV (1010)}" ,
-        # "{973 mV (1011)}" ,
+        "{973 mV (1011)}" ,
         "{1018 mV (1100)}",
-        # "{1056 mV (1101)}",
-        # "{1092 mV (1110)}",
+        "{1056 mV (1101)}",
+        "{1092 mV (1110)}",
         "{1119 mV (1111)}"
     ]
     
-    globalIteration = 1
+    TXPRE_values = [
+        "{0.00 dB (00000)}",
+        "{0.22 dB (00001)}",
+        "{0.45 dB (00010)}",
+        "{0.68 dB (00011)}",
+        "{0.92 dB (00100)}",
+        "{1.16 dB (00101)}",
+        "{1.41 dB (00110)}",
+        "{1.67 dB (00111)}",
+        "{1.94 dB (01000)}",
+        "{2.21 dB (01001)}",
+        "{2.50 dB (01010)}",
+        "{2.79 dB (01011)}",
+        "{3.10 dB (01100)}",
+        "{3.41 dB (01101)}",
+        "{3.74 dB (01110)}",
+        "{4.08 dB (01111)}",
+        "{4.44 dB (10000)}",
+        "{4.81 dB (10001)}",
+        "{5.19 dB (10010)}",
+        "{5.60 dB (10011)}",
+        "{6.02 dB (10100)}",
+        "{6.02 dB (10101)}",
+        "{6.02 dB (10110)}",
+        "{6.02 dB (10111)}",
+        "{6.02 dB (11000)}",
+        "{6.02 dB (11001)}",
+        "{6.02 dB (11010)}",
+        "{6.02 dB (11011)}",
+        "{6.02 dB (11100)}",
+        "{6.02 dB (11101)}",
+        "{6.02 dB (11110)}",
+        "{6.02 dB (11111)}",
+    ]
+    
+    TXPOST_values = [
+        "{0.00 dB (00000)}", 
+        "{0.22 dB (00001)}", 
+        "{0.45 dB (00010)}", 
+        "{0.68 dB (00011)}", 
+        "{0.92 dB (00100)}", 
+        "{1.16 dB (00101)}", 
+        "{1.41 dB (00110)}", 
+        "{1.67 dB (00111)}", 
+        "{1.94 dB (01000)}", 
+        "{2.21 dB (01001)}", 
+        "{2.50 dB (01010)}", 
+        "{2.79 dB (01011)}", 
+        "{3.10 dB (01100)}", 
+        "{3.41 dB (01101)}", 
+        "{3.74 dB (01110)}", 
+        "{4.08 dB (01111)}", 
+        "{4.44 dB (10000)}", 
+        "{4.81 dB (10001)}", 
+        "{5.19 dB (10010)}", 
+        "{5.60 dB (10011)}", 
+        "{6.02 dB (10100)}", 
+        "{6.47 dB (10101)}", 
+        "{6.94 dB (10110)}", 
+        "{7.43 dB (10111)}", 
+        "{7.96 dB (11000)}", 
+        "{8.52 dB (11001)}", 
+        "{9.12 dB (11010)}", 
+        "{9.76 dB (11011)}", 
+        "{10.46 dB (11100)}",
+        "{11.21 dB (11101)}",
+        "{12.04 dB (11110)}",
+        "{12.96 dB (11111)}",
+    ]
+    
+    
+    RXTERM_values = [
+        "{100 mV}",
+        "{200 mV}",
+        "{250 mV}",
+        "{300 mV}",
+        "{350 mV}",
+        "{400 mV}",
+        "{500 mV}",
+        "{550 mV}",
+        "{600 mV}",
+        "{700 mV}",
+        "{800 mV}",
+        "{850 mV}",
+        "{900 mV}",
+        "{950 mV}",
+        "{1000 mV}",
+        "{1100 mV}",
+    ]
+    
+    globalIteration = 2
     globalParameterSpace = {}
     globalParameterSpace["TXDIFFSWING"] = TXDIFFSWING_values
-
+    globalParameterSpace["TXPRE"] = TXPRE_values
+    globalParameterSpace["TXPOST"] = TXPOST_values
+    
     if not os.path.exists("runs"):
         os.makedirs("runs")
 
@@ -340,8 +434,13 @@ def independent_finder(vivadoTX, vivadoRX, txSio):
                 fname = re.sub('\\W', '_', fname)
                 fname = "runs/" + fname + '.csv'
                 
-                cmd = 'run_scan [get_hw_sio_links] "{}"'.format(fname)
-                vivadoRX.do(cmd)
+                hincr = 8
+                vincr = 8
+                # scanType = "1d_bathtub"
+                scanType = "2d_full_eye"
+                linkName = "*"
+                cmd = 'run_scan "{}" {} {} {} {}'.format(fname, hincr, vincr, scanType, linkName)
+                vivadoRX.do(cmd, errmsgs = ['ERROR: '])
                 
                 scanStructure = readCsv(fname)
                 openArea = getOpenArea(scanStructure)
@@ -396,7 +495,7 @@ def interactiveVivadoConsole(vivadoTX, vivadoRX):
 if __name__ == '__main__':
     print(cleyeLogo)
     
-    try:    
+    try:
         logging.info('Spawning Vivado instances (TX/RX)')
         vivadoTX = Vivado(vivadoPath, vivadoArgs)
         vivadoRX = Vivado(vivadoPath, vivadoArgs)
@@ -433,17 +532,20 @@ if __name__ == '__main__':
 
         independent_finder(vivadoTX, vivadoRX, txSio)
 
-        print('')
-        print('All Script has been run.')
-        print('Switch to RX vivado console:')
-        print('')
-        
-        interactiveVivadoConsole(vivadoTX, vivadoRX)
     except KeyboardInterrupt:
         print('Exiting to VivadoTX')
         vivadoTX.exit()
         print('Exiting to VivadoRX')
         vivadoRX.exit()
+    except Exception:
+        traceback.print_exc()
+        
+    try:
+        print('')
+        print('All Script has been run.')
+        print('Switch to RX vivado console:')
+        print('')
+        interactiveVivadoConsole(vivadoTX, vivadoRX)
     except Exception:
         traceback.print_exc()
         print('Exiting to VivadoTX')
