@@ -20,10 +20,12 @@ from __future__ import print_function
 #  - re regexp module for string manipulation.
 #  - csv The Xilinx eye-scanner stores the result in csv format.
 #  - argparse needed to parse command line arguments
+#  - traceback handle exceptions
 import os
 import re
 import csv
 import argparse
+import traceback
 
 # Import 3th party modules:
 #  - wexpect to launch ant interact with subprocesses.
@@ -65,13 +67,20 @@ class Vivado():
         print(self.childProc.before + self.childProc.match.group(0), end='')
         
         
-    def do(self, cmd, prompt = vivadoPrompt, puts = False):
+    def do(self, cmd, prompt=vivadoPrompt, puts=False, errmsgs=[]):
         ''' do a simple command in Vivado console
         '''
+        if self.childProc.terminated:
+            logging.error('The process has been terminated. Sending command is not possible.')
+            raise Exception('The process has been terminated. Sending command is not possible.')
         self.childProc.sendline(cmd)
         if prompt:
             self.childProc.expect(vivadoPrompt)
             logging.debug(cmd + self.childProc.before + self.childProc.match.group(0))
+            for em in  errmsgs:
+                if em in self.childProc.before:
+                    logging.error('during running command: ' + cmd + self.childProc.before)
+                    raise Exception('during running command: ' + cmd + self.childProc.before)
             if puts:
                 print(cmd, end='')
                 print(self.childProc.before, end='')
@@ -89,7 +98,8 @@ class Vivado():
         deviceId = input()
         device = devices[deviceId]
 
-        self.do('set_device ' + device, vivadoPrompt, puts)
+        errmsgs = ['DONE status = 0', 'The debug hub core was not detected.']
+        self.do('set_device ' + device, vivadoPrompt, puts, errmsgs = errmsgs)
 
 
     def chooseSio(self, side, createLink=True, vivadoPrompt=vivadoPrompt, puts=False):
@@ -109,7 +119,22 @@ class Vivado():
             self.do('create_link ' + sio, vivadoPrompt, puts)
             
         return sio
-    
+        
+        
+    def get_var(self, varname):
+        self.do('puts $' + varname)
+        ret = self.childProc.before.splitlines()
+        
+        # remove first line, which is always empty
+        ret = ret[1:] 
+        # print('>>{}<<'.format(ret))
+        
+        # raise exception if the variable is not exist.
+        if ret[0] == 'can\'t read "{}": no such variable'.format(varname):
+            raise Exception(ret[0])
+        
+        return ret
+
     
     def get_property(self, propName, objectName, vivadoPrompt=vivadoPrompt, puts=True):
         ''' does a get_property command in vivado terminal. 
@@ -130,9 +155,136 @@ class Vivado():
         
         
     def exit(self):
-        self.do('exit', None)
-        self.childProc.wait()
+        if self.childProc.terminated:
+            logging.warning('This process has been terminated.')
+            return None
+        else:
+            self.do('exit', None)
+            return self.childProc.wait()
         
+def _parsescanRows(scanRows):
+    scanData = {
+        'scanType': scanRows[0][0],
+        'x':[],
+        'y':[],
+        'values':[]
+        }
+        
+    if scanData['scanType'] not in ['1d bathtub', '2d statistical']:
+        logging.error('Uknnown scan type: ' + scanData['scanType'])
+        raise Exception('Uknnown scan type: ' + scanData['scanType'])
+        
+    xdata = scanRows[0][1:]
+    # Need to normalize, dont know why...
+    divider = abs(float(xdata[0])*2)
+    
+    scanData['x'] = [float(x)/divider for x in scanRows[0][1:]]
+    
+    for r in scanRows[1:]:
+        intr = [float(x) for x in r]
+        scanData['y'].append(intr[0])
+        scanData['values'].append(intr[1:])
+       
+    return scanData
+
+    
+def readCsv(filename):
+    ret = {}
+    scanRows = []
+    storeScanRows = False
+    
+    with open(filename) as csv_file:
+        csv_reader = csv.reader(csv_file, delimiter=',')
+        for row in csv_reader:
+            if row[0] == 'Scan Start':
+                storeScanRows = True
+                continue
+            elif row[0] == 'Scan End':
+                storeScanRows = False
+                ret['scanData'] = _parsescanRows(scanRows)
+                continue
+            elif storeScanRows:
+                scanRows.append(row)
+                continue
+            else:
+                # Try to convert numbers if ots possible
+                try:
+                    val = float(row[1])
+                except ValueError:
+                    val = row[1]
+                ret[row[0]] = val
+    return ret
+    
+
+def _testEye(scanData, xLimit = 0.45, xValLimit = 0.005):
+    ''' Test that the read data is an eye or not.
+    A valid eye must contains 'bit errors' at the edges. If the eye is clean at +-0.500 UI, this
+    definetly not an eye.
+    '''
+    
+    # print('x: ' + str(scanData['x']))
+    # print('y: ' + str(scanData['y']))
+    # print('values: ' + str(scanData['values']))
+    
+    # Get the indexes of the 'edge'
+    # Edge means where abs(x) offset is big, bigger than 0.45.
+    edgeIndexes=[i for i,x in enumerate(scanData['x']) if abs(x) > xLimit]
+    if len(edgeIndexes) < 2:
+        logging.warning('Too few edge indexes')
+        return False
+        
+    # print('edgeIndexes: ' + str(edgeIndexes))
+    
+    # edgeValues contains BER values of the edge positions.
+    edgeValues = []
+    for v in scanData['values']:
+        edgeValues.append([v[i] for i in edgeIndexes])
+    
+    # print('edgeValues: ' + str(edgeValues))
+    # A valid eye must contains high BER values at the edges:
+    globalMinimum = min([min(ev) for ev in edgeValues])
+    
+    if globalMinimum < xValLimit:
+        logging.info('globalMinimum ({}) is less than xValLimit ({})  -> NOT a valid eye.'.format(globalMinimum, xValLimit))
+        return False
+    else:
+        logging.debug('globalMinimum ({}) is greater than xValLimit ({})  -> Valid eye.'.format(globalMinimum, xValLimit))
+        return True
+
+
+def _getArea(scanData, xLimit = 0.2):
+    ''' This is an improoved area meter. 
+    Returns the open area of an eye even if there is no definite open eye.
+    Returns the center area multiplied by the BER values. (ie the average of the center area.)
+    '''
+    
+    # Get the indexes of the 'center'
+    # Center means where abs(x) offset is small, less than 0.1.
+    centerIndexes=[i for i,x in enumerate(scanData['x']) if abs(x) < xLimit]
+    if len(centerIndexes) < 2:
+        logging.warning('Too few center indexes')
+        return False
+    
+    # centerValues contains BER values of the center positions.
+    centerValues = []
+    for v in scanData['values']:
+        centerValues.append([v[i] for i in centerIndexes])
+    
+    # Get the avg center value:
+    centerAvg = [float(sum(cv))/float(len(cv)) for cv in centerValues]
+    centerAvg = float(sum(centerAvg))/float(len(centerAvg))
+    
+    return centerAvg
+        
+def getOpenArea(scanStructure):
+    if _testEye(scanStructure['scanData']):
+        if scanStructure['Open Area'] < 1.0:
+            # if the 'offitial open area' is 0 try to improove:
+            return _getArea(scanStructure['scanData'])
+        else:
+            return scanStructure['Open Area']
+    else:
+        return 0.0
     
     
 def independent_finder(vivadoTX, vivadoRX, txSio):
@@ -140,21 +292,21 @@ def independent_finder(vivadoTX, vivadoRX, txSio):
     '''
     TXDIFFSWING_values = [
         "{269 mV (0000)}" ,
-    #    # "{336 mV (0001)}" ,
-    #    # "{407 mV (0010)}" ,
-    #    # "{474 mV (0011)}" ,
-    #    # "{543 mV (0100)}" ,
-    #    # "{609 mV (0101)}" ,
-    #    "{677 mV (0110)}" ,
-    #    # "{741 mV (0111)}" ,
-    #    # "{807 mV (1000)}" ,
-    #    # "{866 mV (1001)}" ,
-    #    "{924 mV (1010)}" ,
-    #    # "{973 mV (1011)}" ,
-    #    "{1018 mV (1100)}",
-    #    # "{1056 mV (1101)}",
-    #    # "{1092 mV (1110)}",
-    #    "{1119 mV (1111)}"
+        # "{336 mV (0001)}" ,
+        # "{407 mV (0010)}" ,
+        # "{474 mV (0011)}" ,
+        # "{543 mV (0100)}" ,
+        # "{609 mV (0101)}" ,
+        "{677 mV (0110)}" ,
+        # "{741 mV (0111)}" ,
+        # "{807 mV (1000)}" ,
+        # "{866 mV (1001)}" ,
+        "{924 mV (1010)}" ,
+        # "{973 mV (1011)}" ,
+        "{1018 mV (1100)}",
+        # "{1056 mV (1101)}",
+        # "{1092 mV (1110)}",
+        "{1119 mV (1111)}"
     ]
     
     globalIteration = 1
@@ -179,6 +331,10 @@ def independent_finder(vivadoTX, vivadoRX, txSio):
                 checkValue = vivadoTX.get_property(pName, txSioGt)
                 if checkValue not in pValue: # Readback does not contains brackets {}
                     print("ERROR: Something went wrong. Cannot set value {}  {} ".format(checkValue, pValue))
+                    
+                # set_property PORT.GTRXRESET 0 [get_hw_sio_gts  {localhost:3121/xilinx_tcf/Digilent/210203A2513BA/0_1_0/IBERT/Quad_113/MGT_X1Y0}]
+                # commit_hw_sio  [get_hw_sio_gts  {localhost:3121/xilinx_tcf/Digilent/210203A2513BA/0_1_0/IBERT/Quad_113/MGT_X1Y0}]
+
 
                 fname = "{}{}{}".format(i, pName, pValue)
                 fname = re.sub('\\W', '_', fname)
@@ -187,12 +343,8 @@ def independent_finder(vivadoTX, vivadoRX, txSio):
                 cmd = 'run_scan [get_hw_sio_links] "{}"'.format(fname)
                 vivadoRX.do(cmd)
                 
-                openArea = None
-                with open(fname) as csv_file:
-                    csv_reader = csv.reader(csv_file, delimiter=',')
-                    for row in csv_reader:
-                        if row[0] == 'Open Area':
-                            openArea = row[1]
+                scanStructure = readCsv(fname)
+                openArea = getOpenArea(scanStructure)
                 if openArea is None:
                     logging.error('openArea is None after reading file: ' + fname)
                             
@@ -205,8 +357,8 @@ def independent_finder(vivadoTX, vivadoRX, txSio):
                 
             print("pName:  {}    bestParam:  {}".format(pName, bestValue))
             
-            vivadoTX.set_property(pName, bestValue, '[get_hw_sio_links]')
-            vivadoTX.do('commit_hw_sio [get_hw_sio_links]')
+            vivadoTX.set_property(pName, bestValue, txSioGt)
+            vivadoTX.do('commit_hw_sio ' + txSioGt)
 
 
 def interactiveVivadoConsole(vivadoTX, vivadoRX):
@@ -256,12 +408,16 @@ if __name__ == '__main__':
         vivadoRX.do('source sourceme.tcl')
         vivadoTX.do('source sourceme.tcl')
         vivadoRX.do('set devices [fetch_devices]')
-        vivadoRX.do('puts $devices')
+        try:
+            devices = vivadoRX.get_var('devices')
+        except:
+            logging.error('No target device found. Please connect and power up your device(s)')
+            raise
 
         # Get a list of all devices on all target.
-        # Remove empty lines (first line will be empty)
-        # And remove the brackets. fetch_devices returns lists.
-        devices = [x[1:-1] for x in vivadoRX.childProc.before.splitlines() if x ]
+        # Remove the brackets. (fetch_devices returns lists.)
+        devices = re.findall(r'\{(.+?)\}', devices[0]) 
+        # devices = [x[1:-1] for x in devices[0].split(' ') ]
 
         #
         # Choose TX/RX device
@@ -287,7 +443,12 @@ if __name__ == '__main__':
         print('Exiting to VivadoTX')
         vivadoTX.exit()
         print('Exiting to VivadoRX')
-        VivadoRX.exit()
-        sys.exit()
+        vivadoRX.exit()
+    except Exception:
+        traceback.print_exc()
+        print('Exiting to VivadoTX')
+        vivadoTX.exit()
+        print('Exiting to VivadoRX')
+        vivadoRX.exit()
     
     

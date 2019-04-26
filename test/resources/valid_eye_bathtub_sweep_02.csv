@@ -1,0 +1,22 @@
+SW Version,2017.4
+GT Type,7 Series GTX
+Date and Time Started,2019-Apr-25 13:42:39
+Date and Time Ended,2019-Apr-25 13:42:40
+Scan Name,Scan 113
+Link Settings,
+Reset RX After Applying Settings,false
+Open Area,112
+Horizontal Opening,97
+Horizontal Percentage,77.78
+Vertical Opening,1
+Vertical Percentage,100.00
+Dwell,BER
+Dwell BER,1e-5
+Dwell Time,0
+Horizontal Increment,16
+Horizontal Range,-0.500 UI to 0.500 UI
+Misc Info,
+Scan Start
+1d bathtub,-64,-48,-32,-16,0,16,32,48,64
+0,0.157355,1.90738e-07,1.90738e-07,1.90738e-07,1.90738e-07,1.90738e-07,1.90738e-07,1.90738e-07,0.0939717
+Scan End
