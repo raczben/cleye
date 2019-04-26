@@ -1,13 +1,18 @@
+# Cleye generates csv files into runs directory.
+/runs/*
+~*.*
+setup.cfg
+
+# Vivado's litter:
+.Xil/*
+vivado.jou
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 
 # C extensions
 *.so
-
-/runs/*
-~*.*
-setup.cfg
 
 # Distribution / packaging
 .Python
