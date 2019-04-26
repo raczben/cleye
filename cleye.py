@@ -21,11 +21,13 @@ from __future__ import print_function
 #  - csv The Xilinx eye-scanner stores the result in csv format.
 #  - argparse needed to parse command line arguments
 #  - traceback handle exceptions
+#  - time for keyboard interrupt handling
 import os
 import re
 import csv
 import argparse
 import traceback
+import time
 
 # Import 3th party modules:
 #  - wexpect to launch ant interact with subprocesses.
@@ -156,6 +158,18 @@ class Vivado():
         cmd = 'set_property {} {} {}'.format(propName, value, objectName)
         self.do(cmd, vivadoPrompt, puts)
         
+        
+    def resetGT(self):
+        resetName = 'PORT.GT{}RESET'.format(self.sideName)
+        self.set_property(resetName, '1', '[get_hw_sio_gts  {{}}]'.format(self.sio))
+        self.commit_hw_sio()
+        self.set_property(resetName, '0', '[get_hw_sio_gts  {{}}]'.format(self.sio))
+        self.commit_hw_sio()
+
+
+    def commit_hw_sio(self):
+        self.set_property('commit_hw_sio' '0' '[get_hw_sio_gts  {{}}]'.format(self.sio))
+    
         
     def exit(self):
         if self.childProc.terminated:
@@ -297,17 +311,17 @@ def independent_finder(vivadoTX, vivadoRX):
     ''' Runs the optimizer algorithm.
     '''
     TXDIFFSWING_values = [
-        "{269 mV (0000)}" ,
-        "{336 mV (0001)}" ,
-        "{407 mV (0010)}" ,
-        "{474 mV (0011)}" ,
-        "{543 mV (0100)}" ,
-        "{609 mV (0101)}" ,
-        "{677 mV (0110)}" ,
-        "{741 mV (0111)}" ,
-        "{807 mV (1000)}" ,
-        "{866 mV (1001)}" ,
-        "{924 mV (1010)}" ,
+        # "{269 mV (0000)}" ,
+        # "{336 mV (0001)}" ,
+        # "{407 mV (0010)}" ,
+        # "{474 mV (0011)}" ,
+        # "{543 mV (0100)}" ,
+        # "{609 mV (0101)}" ,
+        # "{677 mV (0110)}" ,
+        # "{741 mV (0111)}" ,
+        # "{807 mV (1000)}" ,
+        # "{866 mV (1001)}" ,
+        # "{924 mV (1010)}" ,
         "{973 mV (1011)}" ,
         "{1018 mV (1100)}",
         "{1056 mV (1101)}",
@@ -321,68 +335,68 @@ def independent_finder(vivadoTX, vivadoRX):
         "{0.45 dB (00010)}",
         "{0.68 dB (00011)}",
         "{0.92 dB (00100)}",
-        "{1.16 dB (00101)}",
-        "{1.41 dB (00110)}",
-        "{1.67 dB (00111)}",
-        "{1.94 dB (01000)}",
-        "{2.21 dB (01001)}",
-        "{2.50 dB (01010)}",
-        "{2.79 dB (01011)}",
-        "{3.10 dB (01100)}",
-        "{3.41 dB (01101)}",
-        "{3.74 dB (01110)}",
-        "{4.08 dB (01111)}",
-        "{4.44 dB (10000)}",
-        "{4.81 dB (10001)}",
-        "{5.19 dB (10010)}",
-        "{5.60 dB (10011)}",
-        "{6.02 dB (10100)}",
-        "{6.02 dB (10101)}",
-        "{6.02 dB (10110)}",
-        "{6.02 dB (10111)}",
-        "{6.02 dB (11000)}",
-        "{6.02 dB (11001)}",
-        "{6.02 dB (11010)}",
-        "{6.02 dB (11011)}",
-        "{6.02 dB (11100)}",
-        "{6.02 dB (11101)}",
-        "{6.02 dB (11110)}",
-        "{6.02 dB (11111)}",
+        # "{1.16 dB (00101)}",
+        # "{1.41 dB (00110)}",
+        # "{1.67 dB (00111)}",
+        # "{1.94 dB (01000)}",
+        # "{2.21 dB (01001)}",
+        # "{2.50 dB (01010)}",
+        # "{2.79 dB (01011)}",
+        # "{3.10 dB (01100)}",
+        # "{3.41 dB (01101)}",
+        # "{3.74 dB (01110)}",
+        # "{4.08 dB (01111)}",
+        # "{4.44 dB (10000)}",
+        # "{4.81 dB (10001)}",
+        # "{5.19 dB (10010)}",
+        # "{5.60 dB (10011)}",
+        # "{6.02 dB (10100)}",
+        # "{6.02 dB (10101)}",
+        # "{6.02 dB (10110)}",
+        # "{6.02 dB (10111)}",
+        # "{6.02 dB (11000)}",
+        # "{6.02 dB (11001)}",
+        # "{6.02 dB (11010)}",
+        # "{6.02 dB (11011)}",
+        # "{6.02 dB (11100)}",
+        # "{6.02 dB (11101)}",
+        # "{6.02 dB (11110)}",
+        # "{6.02 dB (11111)}",
     ]
     
     TXPOST_values = [
-        "{0.00 dB (00000)}", 
-        "{0.22 dB (00001)}", 
+        # "{0.00 dB (00000)}", 
+        # "{0.22 dB (00001)}", 
         "{0.45 dB (00010)}", 
         "{0.68 dB (00011)}", 
         "{0.92 dB (00100)}", 
         "{1.16 dB (00101)}", 
         "{1.41 dB (00110)}", 
-        "{1.67 dB (00111)}", 
-        "{1.94 dB (01000)}", 
-        "{2.21 dB (01001)}", 
-        "{2.50 dB (01010)}", 
-        "{2.79 dB (01011)}", 
-        "{3.10 dB (01100)}", 
-        "{3.41 dB (01101)}", 
-        "{3.74 dB (01110)}", 
-        "{4.08 dB (01111)}", 
-        "{4.44 dB (10000)}", 
-        "{4.81 dB (10001)}", 
-        "{5.19 dB (10010)}", 
-        "{5.60 dB (10011)}", 
-        "{6.02 dB (10100)}", 
-        "{6.47 dB (10101)}", 
-        "{6.94 dB (10110)}", 
-        "{7.43 dB (10111)}", 
-        "{7.96 dB (11000)}", 
-        "{8.52 dB (11001)}", 
-        "{9.12 dB (11010)}", 
-        "{9.76 dB (11011)}", 
-        "{10.46 dB (11100)}",
-        "{11.21 dB (11101)}",
-        "{12.04 dB (11110)}",
-        "{12.96 dB (11111)}",
+        # "{1.67 dB (00111)}", 
+        # "{1.94 dB (01000)}", 
+        # "{2.21 dB (01001)}", 
+        # "{2.50 dB (01010)}", 
+        # "{2.79 dB (01011)}", 
+        # "{3.10 dB (01100)}", 
+        # "{3.41 dB (01101)}", 
+        # "{3.74 dB (01110)}", 
+        # "{4.08 dB (01111)}", 
+        # "{4.44 dB (10000)}", 
+        # "{4.81 dB (10001)}", 
+        # "{5.19 dB (10010)}", 
+        # "{5.60 dB (10011)}", 
+        # "{6.02 dB (10100)}", 
+        # "{6.47 dB (10101)}", 
+        # "{6.94 dB (10110)}", 
+        # "{7.43 dB (10111)}", 
+        # "{7.96 dB (11000)}", 
+        # "{8.52 dB (11001)}", 
+        # "{9.12 dB (11010)}", 
+        # "{9.76 dB (11011)}", 
+        # "{10.46 dB (11100)}",
+        # "{11.21 dB (11101)}",
+        # "{12.04 dB (11110)}",
+        # "{12.96 dB (11111)}",
     ]
     
     
@@ -407,9 +421,9 @@ def independent_finder(vivadoTX, vivadoRX):
     
     globalIteration = 1
     globalParameterSpace = {}
-    globalParameterSpace["TXDIFFSWING"] = TXDIFFSWING_values
-    # globalParameterSpace["TXPRE"] = TXPRE_values
-    # globalParameterSpace["TXPOST"] = TXPOST_values
+    globalParameterSpace["TXDIFFSWING"] = TXDIFFSWING_values #[0::2]
+    globalParameterSpace["TXPRE"] = TXPRE_values #[0::2]
+    globalParameterSpace["TXPOST"] = TXPOST_values #[0::2]
     
     if not os.path.exists("runs"):
         os.makedirs("runs")
@@ -422,6 +436,9 @@ def independent_finder(vivadoTX, vivadoRX):
             bestValue = vivadoTX.get_property(pName, txSioGt)
             
             for pValue in pValues:
+                # Test keyboard interrupt:
+                time.sleep(0)
+                
                 logging.info("Create scan ({} {})".format(pName, pValue))
                 vivadoTX.set_property(pName, pValue, txSioGt)
                 vivadoTX.do('commit_hw_sio ' + txSioGt)
@@ -438,8 +455,8 @@ def independent_finder(vivadoTX, vivadoRX):
                 fname = re.sub('\\W', '_', fname)
                 fname = "runs/" + fname + '.csv'
                 
-                hincr = 8
-                vincr = 8
+                hincr = 4
+                vincr = 4
                 # scanType = "1d_bathtub"
                 scanType = "2d_full_eye"
                 linkName = "*"
