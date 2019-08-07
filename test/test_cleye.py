@@ -42,40 +42,44 @@ names = [
     'valid_eye_but_closed_sweep_03',
     ]
     
-scanStructures = {}
-print('Start parsing csv files...', end='')
-for name in names:
-    filename = os.path.join(test_path, 'resources', name + '.csv')
-    scanStructures[name] = cleye.ScanStructure(filename)
     
-print(' [  OK  ]')
+def load_scans():
+    scanStructures = {}
+    print('Start parsing csv files...', end='')
+    for name in names:
+        filename = os.path.join(test_path, 'resources', name + '.csv')
+        scanStructures[name] = cleye.ScanStructure(filename)
+    return scanStructures
+   
+    
+def test_scan_struct():
+    scanStructures = load_scans()
+    for name, scanStruct in scanStructures.items():
+        assert scanStruct['Scan Name'] == name
 
 
-print('Testnig valid eye...', end='')
-ok = True
-for name, scanStruct in scanStructures.items():
-    validEye = scanStruct._testEye()
-    if 'non_valid' in name:
-        validEyeExpected = False
-    else:
-        validEyeExpected = True
-    if validEye != validEyeExpected:
-        print('Error: Mismatch: validEye != validEyeExpected ' + name)
-        ok = False
-
-if ok:
-    print(' [  OK  ]')
+def test_valid_eye():
+    print('Testnig valid eye...', end='')
+    scanStructures = load_scans()
+    ok = True
+    for name, scanStruct in scanStructures.items():
+        validEye = scanStruct._testEye()
+        if 'non_valid' in name:
+            validEyeExpected = False
+        else:
+            validEyeExpected = True
+        assert validEye == validEyeExpected, 'Mismatch: at ' + name
 
 
-print('Testnig open areas...')
-ok = True
-for name, scanStruct in scanStructures.items():
-    openArea = scanStruct.getOpenArea()
-    if 'non_valid' in name:
-        assert(openArea==0.0)
-    else:
-        assert(openArea>0.0)
-    print(name + ': ' + str(openArea))
-print(' [  OK  ]')
-
+def test_open_area():
+    print('Testnig open areas...')
+    scanStructures = load_scans()
+    ok = True
+    for name, scanStruct in scanStructures.items():
+        openArea = scanStruct.getOpenArea()
+        if 'non_valid' in name:
+            assert openArea==0.0, 'Mismatch: at ' + name
+        else:
+            assert openArea>0.0, 'Mismatch: at ' + name
+        print(name + ': ' + str(openArea))
 

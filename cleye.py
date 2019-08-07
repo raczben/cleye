@@ -22,20 +22,23 @@ from __future__ import print_function
 #  - argparse needed to parse command line arguments
 #  - traceback handle exceptions
 #  - time for keyboard interrupt handling
+#  - logging to write logs of running
 import os
 import re
 import csv
 import argparse
 import traceback
 import time
+import logging
 
 # Import 3th party modules:
-#  - wexpect to launch ant interact with subprocesses.
-#  - logging to write logs of running
-import logging
-import wexpect
+#  - wexpect/pexpect to launch ant interact with subprocesses.
+if os.name == 'nt':
+    import wexpect as expect
+else: # Linux
+    import pexpect as expect
 
-cleyeLogo = '''
+cleyeLogo = r'''
        _                   
       | |                  
    ___| | ___ _   _  ___   
@@ -57,6 +60,12 @@ logging.basicConfig(level=logging.INFO)
 logging.basicConfig(filename='cleye.log', filemode='w', format='%(asctime)s - %(name)s: [%(levelname)s] %(message)s')
 
 
+class Clexeption(Exception):
+    '''Cleye specific exceptions.
+    '''
+    pass
+
+
 class Vivado():
     def __init__(self, executable, args, sideName):
         self.childProc = None
@@ -64,7 +73,7 @@ class Vivado():
         self.sio = None
         self.sioLink = None
         
-        self.childProc = wexpect.spawn(executable, args)
+        self.childProc = expect.spawn(executable, args)
         
         
     def waitStartup(self):
@@ -78,7 +87,7 @@ class Vivado():
         '''
         if self.childProc.terminated:
             logging.error('The process has been terminated. Sending command is not possible.')
-            raise Exception('The process has been terminated. Sending command is not possible.')
+            raise Clexeption('The process has been terminated. Sending command is not possible.')
         self.childProc.sendline(cmd)
         if prompt:
             self.childProc.expect(vivadoPrompt)
@@ -86,7 +95,7 @@ class Vivado():
             for em in  errmsgs:
                 if em in self.childProc.before:
                     logging.error('during running command: ' + cmd + self.childProc.before)
-                    raise Exception('during running command: ' + cmd + self.childProc.before)
+                    raise Clexeption('during running command: ' + cmd + self.childProc.before)
             if puts:
                 print(cmd, end='')
                 print(self.childProc.before, end='')
@@ -136,7 +145,7 @@ class Vivado():
         
         # raise exception if the variable is not exist.
         if ret[0] == 'can\'t read "{}": no such variable'.format(varname):
-            raise Exception(ret[0])
+            raise Clexeption(ret[0])
         
         return ret
 
@@ -223,7 +232,7 @@ class ScanStructure(dict):
             
         if scanData['scanType'] not in ['1d bathtub', '2d statistical']:
             logging.error('Uknnown scan type: ' + scanData['scanType'])
-            raise Exception('Uknnown scan type: ' + scanData['scanType'])
+            raise Clexeption('Uknnown scan type: ' + scanData['scanType'])
             
         xdata = scanRows[0][1:]
         # Need to normalize, dont know why...
@@ -534,9 +543,8 @@ def fetchDevices(vivado):
     vivadoRX.do('set devices [fetch_devices]')
     try:
         devices = vivadoRX.get_var('devices')
-    except:
-        logging.error('No target device found. Please connect and power up your device(s)')
-        raise
+    except Clexeption as ex:
+        raise Clexeption('No target device found. Please connect and power up your device(s)')
 
     # Get a list of all devices on all target.
     # Remove the brackets. (fetch_devices returns lists.)
@@ -562,22 +570,31 @@ if __name__ == '__main__':
         devices = fetchDevices(vivadoRX)
         chooseLink(vivadoTX, vivadoRX)
         independent_finder(vivadoTX, vivadoRX)
+        print('')
+        print('All Script has been run.')
 
     except KeyboardInterrupt:
         print('Exiting to VivadoTX')
         vivadoTX.exit()
         print('Exiting to VivadoRX')
         vivadoRX.exit()
+    except Clexeption as ex:
+        logging.error(str(ex))
+        if logging.root.level <= logging.DEBUG:
+            traceback.print_exc()
     except Exception:
+        logging.error('Unknown error!')
         traceback.print_exc()
         
     try:
-        print('')
-        print('All Script has been run.')
         print('Switch to RX vivado console:')
-        print('')
         interactiveVivadoConsole(vivadoTX, vivadoRX)
+    except Clexeption as ex:
+        logging.error(str(ex))
+        if logging.root.level <= logging.DEBUG:
+            traceback.print_exc()
     except Exception:
+        logging.error('Unknown error!')
         traceback.print_exc()
         print('Exiting to VivadoTX')
         vivadoTX.exit()
